@@ -601,6 +601,32 @@ function generateShareText() {
   return `四六级高频词默写打卡\n今日完成：${stats.done}/${goal} 个\n正确率：${accuracy}%\n错词数：${Object.keys(state.wrong).length}\n\n听音默写比只看词表更扎实，明天继续。`;
 }
 
+function selectShareText() {
+  els.shareText.removeAttribute("readonly");
+  els.shareText.focus();
+  els.shareText.select();
+  els.shareText.setSelectionRange(0, els.shareText.value.length);
+  els.shareText.setAttribute("readonly", "readonly");
+}
+
+async function copyShareText() {
+  const text = els.shareText.value;
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  selectShareText();
+  return document.execCommand("copy");
+}
+
+function setCopyButtonText(text, delay = 1400) {
+  els.copyShareBtn.textContent = text;
+  window.clearTimeout(els.copyShareBtnResetTimer);
+  els.copyShareBtnResetTimer = window.setTimeout(() => {
+    els.copyShareBtn.textContent = "复制";
+  }, delay);
+}
+
 initState();
 renderLevelOptions();
 els.modeSelect.value = currentMode;
@@ -694,9 +720,11 @@ els.shareBtn.addEventListener("click", () => {
 
 els.closeShareBtn.addEventListener("click", () => els.shareDialog.close());
 els.copyShareBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(els.shareText.value);
-  els.copyShareBtn.textContent = "已复制";
-  setTimeout(() => {
-    els.copyShareBtn.textContent = "复制";
-  }, 1200);
+  try {
+    const copied = await copyShareText();
+    setCopyButtonText(copied ? "已复制" : "已选中，长按复制", copied ? 1400 : 2400);
+  } catch (error) {
+    selectShareText();
+    setCopyButtonText("已选中，长按复制", 2400);
+  }
 });
