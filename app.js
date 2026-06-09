@@ -267,6 +267,8 @@ let currentMode = state.mode || "dictation";
 let queue = [];
 let current = null;
 let answered = false;
+let speechToken = 0;
+let currentAudio = null;
 
 const els = {
   examButtons: document.querySelectorAll(".segment[data-exam]"),
@@ -416,18 +418,40 @@ function audioPath(word) {
   return `audio/${encodeURIComponent(word.toLowerCase())}.wav`;
 }
 
+function stopSpeech() {
+  speechToken += 1;
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.removeAttribute("src");
+    currentAudio.load();
+  }
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+}
+
 function speak(word) {
-  const audio = new Audio(audioPath(word));
-  audio.play().catch(() => {
+  stopSpeech();
+  const token = speechToken;
+  if (!currentAudio) {
+    currentAudio = new Audio();
+    currentAudio.preload = "auto";
+  }
+  currentAudio.src = audioPath(word);
+  currentAudio.currentTime = 0;
+  const playPromise = currentAudio.play();
+  if (!playPromise) return;
+  playPromise.catch(() => {
+    if (token !== speechToken) return;
     if (!("speechSynthesis" in window)) {
       els.feedback.textContent = "当前浏览器不能直接朗读，请用手机系统浏览器打开，或确认 audio 文件已生成。";
       els.feedback.className = "feedback bad";
       return;
     }
-    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(word);
     utterance.lang = "en-US";
     utterance.rate = 0.86;
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   });
 }
