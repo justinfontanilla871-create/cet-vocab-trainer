@@ -269,6 +269,8 @@ let current = null;
 let answered = false;
 let speechToken = 0;
 let currentAudio = null;
+const audioCache = new Map();
+const maxCachedAudio = 48;
 
 const els = {
   examButtons: document.querySelectorAll(".segment[data-exam]"),
@@ -418,12 +420,55 @@ function audioPath(word) {
   return `audio/${encodeURIComponent(word.toLowerCase())}.wav`;
 }
 
+function audioKey(word) {
+  return word.toLowerCase();
+}
+
+function getCachedAudio(word) {
+  const key = audioKey(word);
+  if (audioCache.has(key)) {
+    const cached = audioCache.get(key);
+    audioCache.delete(key);
+    audioCache.set(key, cached);
+    return cached;
+  }
+  const audio = new Audio(audioPath(word));
+  audio.preload = "auto";
+  audioCache.set(key, audio);
+  if (audioCache.size > maxCachedAudio) {
+    const oldestKey = audioCache.keys().next().value;
+    const oldest = audioCache.get(oldestKey);
+    if (oldest && oldest !== currentAudio) {
+      oldest.pause();
+      oldest.removeAttribute("src");
+      oldest.load();
+    }
+    audioCache.delete(oldestKey);
+  }
+  return audio;
+}
+
+function preloadAudio(word) {
+  if (!word) return;
+  const audio = getCachedAudio(word);
+  if (audio.readyState === 0) {
+    try {
+      audio.load();
+    } catch (error) {
+      // Some mobile browsers ignore programmatic preload; playback still works on touch.
+    }
+  }
+}
+
 function stopSpeech() {
   speechToken += 1;
   if (currentAudio) {
     currentAudio.pause();
-    currentAudio.removeAttribute("src");
-    currentAudio.load();
+    try {
+      currentAudio.currentTime = 0;
+    } catch (error) {
+      // The audio may not have metadata yet; safe to ignore before the next play.
+    }
   }
   if ("speechSynthesis" in window) {
     window.speechSynthesis.cancel();
@@ -433,12 +478,12 @@ function stopSpeech() {
 function speak(word) {
   stopSpeech();
   const token = speechToken;
-  if (!currentAudio) {
-    currentAudio = new Audio();
-    currentAudio.preload = "auto";
+  currentAudio = getCachedAudio(word);
+  try {
+    currentAudio.currentTime = 0;
+  } catch (error) {
+    // Metadata can still be loading on mobile; play() will start from the beginning.
   }
-  currentAudio.src = audioPath(word);
-  currentAudio.currentTime = 0;
   const playPromise = currentAudio.play();
   if (!playPromise) return;
   playPromise.catch(() => {
@@ -456,11 +501,30 @@ function speak(word) {
   });
 }
 
+function bindSpeakButton(button, wordGetter) {
+  let spokeOnPointer = 0;
+  const play = event => {
+    const word = wordGetter();
+    if (!word) return;
+    if (event.type === "click" && Date.now() - spokeOnPointer < 700) return;
+    if ((event.type === "pointerdown" || event.type === "touchstart") && Date.now() - spokeOnPointer < 120) return;
+    if (event.type === "pointerdown" || event.type === "touchstart") {
+      spokeOnPointer = Date.now();
+    }
+    speak(word);
+  };
+  button.addEventListener("pointerdown", play);
+  button.addEventListener("touchstart", play, { passive: true });
+  button.addEventListener("click", play);
+}
+
 function nextWord(options = {}) {
   const shouldFocusInput = Boolean(options.focusInput);
   if (queue.length === 0) resetQueue();
   current = queue.shift();
   answered = false;
+  preloadAudio(current.word);
+  queue.slice(0, 2).forEach(item => preloadAudio(item.word));
   els.feedback.textContent = "";
   els.feedback.className = "feedback";
   els.currentWord.textContent = "-";
@@ -575,9 +639,9 @@ function updateStats() {
 function renderWordList() {
   const query = normalize(els.searchInput.value || "");
   els.wordList.innerHTML = "";
-  bank()
-    .filter(item => !query || normalize(item.word).includes(query) || cleanMeaning(item.meaning).includes(query))
-    .forEach(item => els.wordList.appendChild(wordRow(item)));
+  const items = bank().filter(item => !query || normalize(item.word).includes(query) || cleanMeaning(item.meaning).includes(query));
+  items.forEach(item => els.wordList.appendChild(wordRow(item)));
+  items.slice(0, 12).forEach(item => preloadAudio(item.word));
 }
 
 function renderWrongList() {
@@ -608,7 +672,7 @@ function wordRow(item, meta = "") {
   button.type = "button";
   button.title = "播放发音";
   button.textContent = "▶";
-  button.addEventListener("click", () => speak(item.word));
+  bindSpeakButton(button, () => item.word);
   row.append(word, meaning, button);
   return row;
 }
@@ -710,7 +774,7 @@ els.answerForm.addEventListener("submit", event => {
   checkAnswer(els.answerInput.value);
 });
 
-els.speakBtn.addEventListener("click", () => current && speak(current.word));
+bindSpeakButton(els.speakBtn, () => current && current.word);
 els.skipBtn.addEventListener("click", () => {
   if (!answered) showAnswer(false);
 });
