@@ -271,6 +271,14 @@ let speechToken = 0;
 let currentAudio = null;
 const audioCache = new Map();
 const maxCachedAudio = 48;
+const audioSourceCache = new Map();
+const maxCachedAudioSources = 96;
+const canUseSystemSpeech = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+const prefersSystemSpeech =
+  canUseSystemSpeech &&
+  (navigator.maxTouchPoints > 0 ||
+    (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ||
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
 
 const els = {
   examButtons: document.querySelectorAll(".segment[data-exam]"),
@@ -443,8 +451,8 @@ function normalize(value) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function audioPath(word) {
-  return `audio/${encodeURIComponent(word.toLowerCase())}.wav`;
+function audioPath(word, extension = "mp3") {
+  return `audio/${encodeURIComponent(word.toLowerCase())}.${extension}`;
 }
 
 function audioKey(word) {
@@ -457,10 +465,18 @@ function getCachedAudio(word) {
     const cached = audioCache.get(key);
     audioCache.delete(key);
     audioCache.set(key, cached);
+    useCachedAudioSource(word, cached);
     return cached;
   }
   const audio = new Audio(audioPath(word));
+  audio.addEventListener("error", () => {
+    if (audio.dataset.fallback === "wav") return;
+    audio.dataset.fallback = "wav";
+    audio.src = audioPath(word, "wav");
+    audio.load();
+  });
   audio.preload = "auto";
+  useCachedAudioSource(word, audio);
   audioCache.set(key, audio);
   if (audioCache.size > maxCachedAudio) {
     const oldestKey = audioCache.keys().next().value;
@@ -475,16 +491,78 @@ function getCachedAudio(word) {
   return audio;
 }
 
+function rememberAudioSource(key, entry) {
+  if (audioSourceCache.has(key)) {
+    audioSourceCache.delete(key);
+  }
+  audioSourceCache.set(key, entry);
+  while (audioSourceCache.size > maxCachedAudioSources) {
+    const oldestKey = audioSourceCache.keys().next().value;
+    const oldest = audioSourceCache.get(oldestKey);
+    if (oldest && oldest.objectUrl) {
+      URL.revokeObjectURL(oldest.objectUrl);
+    }
+    audioSourceCache.delete(oldestKey);
+  }
+}
+
+function preloadAudioSource(word) {
+  const key = audioKey(word);
+  if (audioSourceCache.has(key)) {
+    const cached = audioSourceCache.get(key);
+    rememberAudioSource(key, cached);
+    return cached.promise;
+  }
+
+  const entry = { objectUrl: "", promise: null };
+  entry.promise = fetch(audioPath(word), { cache: "force-cache" })
+    .then(response => {
+      if (!response.ok) throw new Error(`Audio not found: ${word}`);
+      return response.blob();
+    })
+    .then(blob => {
+      entry.objectUrl = URL.createObjectURL(blob);
+      return entry.objectUrl;
+    })
+    .catch(error => {
+      audioSourceCache.delete(key);
+      throw error;
+    });
+  rememberAudioSource(key, entry);
+  return entry.promise;
+}
+
+function useCachedAudioSource(word, audio) {
+  const entry = audioSourceCache.get(audioKey(word));
+  if (!entry || !entry.objectUrl || audio.src === entry.objectUrl || !audio.paused) return false;
+  audio.src = entry.objectUrl;
+  audio.load();
+  return true;
+}
+
 function preloadAudio(word) {
+  if (prefersSystemSpeech) return;
   if (!word) return;
   const audio = getCachedAudio(word);
-  if (audio.readyState === 0) {
+  const sourceReady = useCachedAudioSource(word, audio);
+  if (!sourceReady && audio.readyState === 0) {
     try {
       audio.load();
     } catch (error) {
       // Some mobile browsers ignore programmatic preload; playback still works on touch.
     }
   }
+  preloadAudioSource(word)
+    .then(url => {
+      const cached = audioCache.get(audioKey(word));
+      if (cached && cached.paused && cached.src !== url) {
+        cached.src = url;
+        cached.load();
+      }
+    })
+    .catch(() => {
+      // Local file previews and some browsers can block fetch preloads; regular audio still works.
+    });
 }
 
 function stopSpeech() {
@@ -502,9 +580,21 @@ function stopSpeech() {
   }
 }
 
+function speakWithSystemVoice(word) {
+  if (!canUseSystemSpeech) return false;
+  const utterance = new SpeechSynthesisUtterance(word);
+  utterance.lang = "en-US";
+  utterance.rate = 0.88;
+  utterance.volume = 1;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
+
 function speak(word) {
   stopSpeech();
   const token = speechToken;
+  if (prefersSystemSpeech && speakWithSystemVoice(word)) return;
   currentAudio = getCachedAudio(word);
   try {
     currentAudio.currentTime = 0;
@@ -529,19 +619,21 @@ function speak(word) {
 }
 
 function bindSpeakButton(button, wordGetter) {
-  let spokeOnPointer = 0;
+  let ignoreClickUntil = 0;
   const play = event => {
     const word = wordGetter();
     if (!word) return;
-    if (event.type === "click" && Date.now() - spokeOnPointer < 700) return;
-    if ((event.type === "pointerdown" || event.type === "touchstart") && Date.now() - spokeOnPointer < 120) return;
+    if (event.type === "click" && Date.now() < ignoreClickUntil) return;
     if (event.type === "pointerdown" || event.type === "touchstart") {
-      spokeOnPointer = Date.now();
+      ignoreClickUntil = Date.now() + 700;
     }
     speak(word);
   };
-  button.addEventListener("pointerdown", play);
-  button.addEventListener("touchstart", play, { passive: true });
+  if (window.PointerEvent) {
+    button.addEventListener("pointerdown", play);
+  } else {
+    button.addEventListener("touchstart", play, { passive: true });
+  }
   button.addEventListener("click", play);
 }
 
@@ -551,7 +643,7 @@ function nextWord(options = {}) {
   current = queue.shift();
   answered = false;
   preloadAudio(current.word);
-  queue.slice(0, 2).forEach(item => preloadAudio(item.word));
+  queue.slice(0, 6).forEach(item => preloadAudio(item.word));
   els.feedback.textContent = "";
   els.feedback.className = "feedback";
   els.currentWord.textContent = "-";
