@@ -28372,7 +28372,7 @@ window.importedWordBanks = {
     ],
     [
       "process",
-      "v.处理 n.过程;步骤 29. regulation(78 次 n.规章",
+      "v.处理 n.过程;步骤",
       "",
       "ˈprɔˌsɛs"
     ],
@@ -28918,7 +28918,7 @@ window.importedWordBanks = {
     ],
     [
       "sensitive",
-      "a.敏感的，体贴的 122..temperature(26 次)n.温度",
+      "a.敏感的，体贴的",
       "",
       "ˈsensətɪv"
     ],
@@ -40922,7 +40922,7 @@ window.importedWordBanks = {
     ],
     [
       "process",
-      "v.处理 n.过程;步骤 29. regulation(78 次 n.规章",
+      "v.处理 n.过程;步骤",
       "",
       "ˈprɔˌsɛs"
     ],

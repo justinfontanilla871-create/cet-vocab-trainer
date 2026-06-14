@@ -325,7 +325,11 @@ function examLabel(exam = currentExam) {
 }
 
 function cleanMeaning(value) {
-  return String(value || "").replace(/\s*·\s*考频\d+次\s*$/, "");
+  return String(value || "")
+    .replace(/\s*[·・•]?\s*考[频评]\s*\d+\s*次\s*/g, "")
+    .replace(/\s+\d+[.．、]*\s*[a-zA-Z][a-zA-Z\s-]*\(\d+\s*次.*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function levelLabel(level = currentLevel) {
@@ -542,7 +546,7 @@ function nextWord(options = {}) {
     els.answerInput.placeholder = "输入英文单词";
   } else if (currentMode === "cn2en") {
     els.questionType.textContent = "看中文默写";
-    els.promptText.textContent = current.meaning;
+    els.promptText.textContent = cleanMeaning(current.meaning);
     els.phonetic.textContent = current.phonetic ? `[${current.phonetic}]` : "根据中文释义输入英文单词";
     els.answerForm.hidden = false;
     els.choices.hidden = true;
@@ -569,7 +573,7 @@ function renderChoices() {
     const button = document.createElement("button");
     button.className = "choice";
     button.type = "button";
-    button.textContent = item.meaning;
+    button.textContent = cleanMeaning(item.meaning);
     button.addEventListener("click", () => checkChoice(button, item.word === current.word));
     els.choices.appendChild(button);
   });
@@ -616,7 +620,7 @@ function checkAnswer(value) {
 function checkChoice(button, isCorrect) {
   if (answered) return;
   [...els.choices.children].forEach(child => {
-    const shouldMark = child.textContent === current.meaning;
+    const shouldMark = child.textContent === cleanMeaning(current.meaning);
     child.classList.toggle("correct", shouldMark);
   });
   if (!isCorrect) button.classList.add("wrong");
