@@ -38,7 +38,7 @@ const wordBanks = {
     ["circumstance", "情况；环境", "Study methods depend on circumstances."],
     ["combine", "结合", "Combine listening with spelling."],
     ["comfort", "安慰；舒适", "Preparation gives comfort."],
-    ["comment", "评论；意见", "Leave a comment if you need the link."],
+    ["comment", "评论；意见", "Make a short comment after reading."],
     ["communicate", "交流；传达", "Words help people communicate."],
     ["compare", "比较", "Compare your answer with the correct one."],
     ["compete", "竞争", "Students compete for better scores."],
@@ -313,6 +313,29 @@ const allLevelOptions = [...els.levelSelect.options].map(option => ({
   label: option.textContent,
   exam: option.dataset.exam || bankExam(option.value)
 }));
+
+const shareQuotes = [
+  "不必声张，慢慢生长。",
+  "把微光攒成明天。",
+  "日子往前，答案也在路上。",
+  "每一步都算数。",
+  "一点一点，也是在靠近。",
+  "慢慢来，也会到达。",
+  "沉住气，往前走。",
+  "愿你眼里有光，脚下有路。",
+  "风会记得每一次出发。",
+  "路远也要一步一步走。",
+  "不慌不忙，自有回响。",
+  "把今天过成一个新的起点。",
+  "轻舟已过，仍向前行。",
+  "去靠近那个更好的自己。",
+  "所有微小的坚持，都有意义。",
+  "愿今天的努力，成为明天的底气。",
+  "山不让尘，川不辞盈。",
+  "你只管努力，时间会给答案。",
+  "去发光，不必等风来。",
+  "今天也在向前。"
+];
 
 function bankExam(level) {
   if (level.startsWith("cet_common")) return "common";
@@ -690,7 +713,8 @@ function generateShareText() {
   const stats = state.stats[today];
   const goal = Number(state.dailyGoal) || 50;
   const accuracy = stats.total ? Math.round((stats.correct / stats.total) * 100) : 0;
-  return `四六级高频词默写打卡\n今日完成：${stats.done}/${goal} 个\n正确率：${accuracy}%\n错词数：${Object.keys(state.wrong).length}\n\n听音默写比只看词表更扎实，明天继续。`;
+  const quote = shareQuotes[Math.floor(Math.random() * shareQuotes.length)];
+  return `四六级高频词默写打卡\n今日完成：${stats.done}/${goal} 个\n正确率：${accuracy}%\n错词数：${Object.keys(state.wrong).length}\n\n${quote}`;
 }
 
 function selectShareText() {
